@@ -1,0 +1,74 @@
+{
+  "manifestVersion": 1,
+  "id": "clone-extension",
+  "publisher": "OrgName",
+  "version": "1.0.0",
+  "name": "ADO Feature Clone",
+  "description": "Visual Studio Services extension to do deep clone of a feature work item",
+  "public": false,
+  "scopes": [
+    "vso.work",
+    "vso.work_write",
+    "vso.profile",
+    "vso.serviceendpoint_query"
+  ],
+  "icons": {
+    "default": "images/logo.png"
+  },
+  "screenshots": [
+    {
+      "path": "images/screen1.png"
+    },
+    {
+      "path": "images/screen2.png"
+    }
+  ],
+  "content": {
+    "details": {
+      "path": "overview.md"
+    },
+    "license": {
+      "path": "license-terms.md"
+    }
+  },
+  "categories": [ "Azure Boards" ],
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "contributions": [
+    {
+      "id": "cloneAction",
+      "type": "ms.vss-web.action",
+      "description": "Work item context menu action to clone the selected Feature and its child work items",
+      "targets": [
+        "ms.vss-work-web.work-item-context-menu",
+        "ms.vss-work-web.backlog-item-menu",
+        "ms.vss-work-web.backlog-context-menu",
+        "ms.vss-work-web.query-result-work-item-menu"
+      ],
+      "properties": {
+        "text": "Clone Feature",
+        "title": "Deep clone Feature",
+        "icon": "images/icon-clone.png",
+        "uri": "background.html"
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "images",
+      "addressable": true
+    },
+    {
+      "path": "background.html",
+      "addressable": true
+    },
+    {
+      "path": "node_modules/vss-web-extension-sdk/lib",
+      "addressable": true,
+      "packagePath": "lib"
+    }
+  ]
+}

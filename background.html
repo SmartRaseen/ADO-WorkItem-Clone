@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <script src="lib/VSS.SDK.min.js"></script>
+    <script type="text/javascript">
+
+        // constants
+        const getWorkItemRelativePath = "/_apis/wit/workitems?$expand=all&api-version=6.0&id=";
+        const createWorkItemRelativePath = "/_apis/wit/workitems/${type}?api-version=6.0";
+        const wItemFields = ["System.Tags", "System.Title", "System.IterationId", "System.AssignedTo", "System.ExternalLinkCount", "System.HyperLinkCount", "System.AttachedFileCount", "System.NodeName",
+            "System.RevisedDate", "System.ChangedDate", "System.AreaId", "System.AuthorizedAs", "System.AuthorizedDate", "System.Watermark",
+            "System.Rev", "System.ChangedBy", "System.WorkItemType", "System.Description", "System.History", "System.RelatedLinkCount", "System.TeamProject"];
+
+        // global variable
+        var authHeader = "";
+        var getWorkItemIdUrl = "";
+        var createWorkItemUrl = "";
+
+        // sdk init function
+        VSS.init({
+            explicitNotifyLoaded: true,
+            usePlatformScripts: true,
+        });
+
+        // sdk ready fuction
+        VSS.ready(function () {
+            var baseUri = VSS.getWebContext().host.uri;
+            var project = VSS.getWebContext().project.name;
+
+            getWorkItemIdUrl = baseUri + project + getWorkItemRelativePath;
+            createWorkItemUrl = baseUri + project + createWorkItemRelativePath;
+        });
+
+        // defining handlers inside auth service to get access token
+        VSS.require(["VSS/Authentication/Services"], function (VSS_Auth_Service) {
+            var cloneHandler = (async function () {
+                "use strict";
+
+                // event handler for the clone action context
+                return await {
+                    execute: async function (actionContext) {
+
+                        // clone only for feature work item type
+                        if (actionContext.workItemTypeNames[0] !== "Feature") {
+                            return;
+                        }
+
+                        // get logged in user access token
+                        return await VSS.getAccessToken().then(async function (token) {
+
+                            // get authorization header for user based access token
+                            authHeader = VSS_Auth_Service.authTokenManager.getAuthorizationHeader(
+                                token
+                            );
+
+                            // get id of the workItem
+                            var workItemId = (actionContext.ids || actionContext.workItemIds)[0];
+
+                            // prompt user to enter a new feature name
+                            var prefix = prompt("Please enter new workitem title:", workItemId + "_Clone");
+
+                            // if user selects cancel return
+                            if (prefix === null) {
+                                return;
+                            }
+
+                            // if prefix is emtpy, feed default value
+                            if (prefix === "") {
+                                prefix = workItemId + "_Clone";
+                            }
+
+                            let clonedWI = await cloneWorkItem(prefix, workItemId);
+
+                            // reload page post cloning
+                            reloadPage();
+                        });
+                    },
+                };
+            })();
+
+            // compute the contribution id based on extension's publisher and id in combinatio with context action
+            var contributionId = VSS.getExtensionContext().publisherId + "." + VSS.getExtensionContext().extensionId + ".cloneAction";
+
+            // log the contribution id to console for debugging purpose
+            // TODO: should be commented in release mode
+            console.log("Extension ContributionId: " + contributionId);
+
+            // register clonehander to the contribution id configured in vss-extentions.json
+            VSS.register(contributionId, cloneHandler);
+
+            // notify success
+            VSS.notifyLoadSucceeded();
+        });
+
+        // Get navigation service
+        function reloadPage() {
+            return VSS.getService(VSS.ServiceIds.Navigation).then(function (navigationService) {
+                // Reload whole page
+                navigationService.reload();
+            });
+        }
+
+        // clone work item
+        async function cloneWorkItem(prefix, workitemid) {
+            return new Promise(async function (resolve, reject) {
+                try {
+                    let clonedWorkItemData = await getWorkItemDetails(prefix, workitemid)
+
+                    if (clonedWorkItemData === undefined) {
+                        console.log("No Data Yet")
+                    } else {
+                        var oldWorkItemType = clonedWorkItemData.pop();
+                        let WI = await syncCreateWorkItem(oldWorkItemType, clonedWorkItemData);
+                        resolve(WI);
+                    }
+                } catch (error) {
+                    console.log(error);
+                }
+            });
+        }
+
+        // sync and create work item
+        async function syncCreateWorkItem(oldWIType, clonedData) {
+            return new Promise(async function (resolve, reject) {
+                try {
+                    let clonedWI = await createNewWorkItem(oldWIType, clonedData);
+                    if (clonedWI === undefined) {
+                        console.log("No Data Yet");
+                    } else {
+                        resolve(clonedWI);
+                    }
+                } catch (err) {
+                    console.log(err)
+                }
+            });
+        }
+
+        // create new work item based on relation and additional properties
+        function createNewWorkItem(workItemType, jsonData) {
+            return new Promise(function (resolve, reject) {
+
+                var jaxPost = new XMLHttpRequest();
+                jaxPost.open("POST", createWorkItemUrl.replace("${type}", "$" + workItemType));
+                jaxPost.setRequestHeader("Content-Type", "application/json-patch+json;charset=UTF-8");
+                jaxPost.setRequestHeader('Authorization', authHeader);
+
+                jaxPost.onload = function () {
+                    if (this.status >= 200 && this.status < 300) {
+                        var respObj = JSON.parse(jaxPost.responseText);
+                        console.log("10. clonedWorkItemID :" + respObj.id)
+                        resolve(respObj);
+                    } else {
+                        reject({
+                            status: this.status,
+                            statusText: jaxPost.statusText
+                        });
+                    }
+                };
+                jaxPost.onerror = function () {
+                    reject({
+                        status: this.status,
+                        statusText: jaxPost.statusText
+                    });
+                };
+                jaxPost.send(JSON.stringify(jsonData));
+            });
+        }
+
+        // get work item details based on id
+        function getWorkItemDetails(prefix, workitemid) {
+            return new Promise(function (resolve, reject) {
+
+                var jax = new XMLHttpRequest();
+                jax.open("GET", getWorkItemIdUrl + workitemid);
+                jax.setRequestHeader('Authorization', authHeader);
+
+                jax.onload = async function () {
+                    if (this.status >= 200 && this.status < 300) {
+                        jsonData = jax.responseText;
+                        var obj = JSON.parse(jsonData);
+                        var oldWorkItemType = obj.fields["System.WorkItemType"];
+
+                        var newWorkItem = [];
+                        for (var i in wItemFields) {
+                            if (obj.fields[wItemFields[i]] === undefined) {
+                                //think what to do
+                            }
+                            else {
+                                if (wItemFields[i] != "System.Title") {
+                                    var newWorkItemObj = {
+                                        "op": "add",
+                                        "path": "/fields/" + wItemFields[i],
+                                        "from": null,
+                                        "value": obj.fields[wItemFields[i]]
+                                    }
+                                    newWorkItem.push(newWorkItemObj);
+                                }
+                                // Tasks & PBI should not use prefix. For Features, title should be prefix
+                                else {
+                                    if (oldWorkItemType == "Feature") {
+                                        title = prefix;
+                                    }
+                                    else {
+                                        title = obj.fields[wItemFields[i]]
+                                    }
+
+                                    var newWorkItemObj = {
+                                        "op": "add",
+                                        "path": "/fields/" + wItemFields[i],
+                                        "from": null,
+                                        "value": title
+                                    }
+                                    newWorkItem.push(newWorkItemObj);
+                                }
+                            }
+                        }
+
+                        // loop through parent relations
+                        for (var irel = 0; irel < obj.relations.length; irel++) {
+                            console.log("Got some relations: " + obj.relations.length)
+
+                            if (obj.relations[irel].attributes.name === "Parent") {
+                                var newWorkItemObj = {
+                                    "op": "add",
+                                    "path": "/relations/-",
+                                    "from": null,
+                                    "value": {
+                                        "rel": obj.relations[irel].rel,
+                                        "url": obj.relations[irel].url,
+                                        "attributes": {
+                                            "name": "Parent"
+                                        }
+                                    }
+                                }
+                                // doing this only for feature type. For child type avoid cyclic references to parent.
+                                if (oldWorkItemType === "Feature") {
+                                    console.log("4." + irel + " In Parent")
+                                    console.log("rel count: " + irel)
+                                    newWorkItem.push(newWorkItemObj);
+                                }
+
+                            }
+                        }
+
+                        // array to collect child items
+                        var childItems = [];
+
+                        // Loop through child relations
+                        for (var irel = 0; irel < obj.relations.length; irel++) {
+
+                            // only child relation to do sorting
+                            if (obj.relations[irel].attributes.name === "Child") {
+
+                                // get child url
+                                var child_relURL = obj.relations[irel].url;
+
+                                // get the work item id from url
+                                var childId = child_relURL.substring(child_relURL.lastIndexOf('/') + 1);
+
+                                // push the child properties to array
+                                childItems.push({ Id: parseInt(childId), Url: child_relURL, Relation: obj.relations[irel].rel });
+                            }
+                        }
+
+                        // sort the child item based on creation
+                        childItems.sort(function (a, b) { return a.Id - b.Id; });
+
+                        // create child items and assign newly created ids as child relations to parent work item
+                        for (var irel = 0; irel < childItems.length; irel++) {
+
+                            // clone the child work item
+                            let clonedWI = await cloneWorkItem(prefix, childItems[irel].Id);
+
+                            //replace old relation object work item id with the new cloned workitem id.
+                            var newWorkItemObj = {
+                                "op": "add",
+                                "path": "/relations/-",
+                                "from": null,
+                                "value": {
+                                    "rel": childItems[irel].Relation,
+                                    "url": childItems[irel].Url.split('/').slice(0, -1).join('/') + "/" + clonedWI.id,
+                                    "attributes": {
+                                        "name": "Child"
+                                    }
+                                }
+                            }
+
+                            // push the child relations to parent object
+                            newWorkItem.push(newWorkItemObj);
+                        }
+
+                        newWorkItem.push(oldWorkItemType);
+                        resolve(newWorkItem);
+                    }
+                    else {
+                        reject({
+                            status: this.status,
+                            statusText: jax.statusText
+                        });
+                    }
+                };
+                jax.onerror = function () {
+                    reject({
+                        status: this.status,
+                        statusText: jax.statusText
+                    });
+                };
+                jax.send();
+            });
+        }
+    </script>
+</head>
+<body>
+</body>
+</html>

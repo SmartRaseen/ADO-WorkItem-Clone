@@ -1,0 +1,15 @@
+{
+  "name": "ADOCloneFeature",
+  "version": "1.0.0",
+  "main": "background.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "vss-web-extension-sdk": "^5.141.0"
+  }
+}
